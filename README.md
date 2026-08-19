@@ -31,6 +31,8 @@ FTP workflow میں نیا PDF `media/` میں اپ لوڈ کریں اور `medi
 
 `saltanatnewskarachi.com.pk/` فولڈر کے **اندر والی تمام فائلیں** اپنے domain کے document root، مثلاً `/home/noorgeec/saltanatnewskarachi.com.pk/` یا متعلقہ `public_html/` folder میں اپ لوڈ کریں۔ Domain کو اسی folder سے point کریں۔ `.htaccess` بھی ضرور اپ لوڈ کریں۔
 
+اگر cPanel Git Version Control میں repository path `/home/noorgeec/saltanat` پر موجود ہے تو `.cpanel.yml` پہلے `index.html`، `admin.php`، `deploy.php` اور `.htaccess` کو document root میں publish کرے گی۔ یہ deployment موجودہ `media/` PDFs اور live `media/issues.json` کو محفوظ رکھتی ہے۔ cPanel میں **Update from Remote** کے بعد **Deploy HEAD Commit** استعمال کریں۔
+
 Sensitive معلومات کے لیے `/home/noorgeec/.cred/` جیسا folder document root سے **باہر** بنائیں۔ `admin.php` کے لیے اس میں `saltanat-admin.php` بنائیں:
 
 ```php

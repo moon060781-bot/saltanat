@@ -15,3 +15,7 @@ Credential values، hosting access، domain logins، personal identity numbers،
 ## اگلی بار یاد رکھنے کی باتیں
 
 نیا PDF ملنے پر پہلے `media/` میں موجود file name confirm کریں، پھر `issues.json` میں entry شامل یا `admin.php` سے upload کریں، اور آخر میں mobile/desktop viewer check کریں۔ UI کو سادہ، cream-and-navy، Urdu-first اور PDF-first رکھیں۔
+
+## cPanel Deployment Mapping
+
+19 اگست 2026 کو cPanel میں domain `saltanatnewskarachi.com.pk` کا document root `/home/noorgeec/saltanatnewskarachi.com.pk` verify ہوا۔ cPanel Git™ Version Control میں repository `saltanat-m81` کا path `/home/noorgeec/saltanat`، checked-out branch `main-m81`، اور GitHub remote `https://github.com/moon060781-bot/saltanat` ہے۔ `.cpanel.yml` صرف public site files deploy کرتی ہے اور existing `media/` PDFs و live `issues.json` کو محفوظ رکھتی ہے۔

@@ -1,0 +1,12 @@
+---
+# Saltanat News Karachi — cPanel Git deployment.
+# Preserve media PDFs and the live archive file; publish only the site application files.
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/noorgeec/saltanatnewskarachi.com.pk
+    - /bin/mkdir -p "$DEPLOYPATH/media" "$DEPLOYPATH/images"
+    - /bin/cp index.html "$DEPLOYPATH/index.html"
+    - /bin/cp admin.php "$DEPLOYPATH/admin.php"
+    - /bin/cp deploy.php "$DEPLOYPATH/deploy.php"
+    - /bin/cp .htaccess "$DEPLOYPATH/.htaccess"
+    - /bin/test -f "$DEPLOYPATH/media/issues.json" || /bin/cp media/issues.json "$DEPLOYPATH/media/issues.json"
