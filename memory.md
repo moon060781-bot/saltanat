@@ -19,3 +19,5 @@ Credential values، hosting access، domain logins، personal identity numbers،
 ## cPanel Deployment Mapping
 
 19 اگست 2026 کو cPanel میں domain `saltanatnewskarachi.com.pk` کا document root `/home/noorgeec/saltanatnewskarachi.com.pk` verify ہوا۔ cPanel Git™ Version Control میں repository `saltanat-m81` کا path `/home/noorgeec/saltanat`، checked-out branch `main-m81`، اور GitHub remote `https://github.com/moon060781-bot/saltanat` ہے۔ `.cpanel.yml` صرف public site files deploy کرتی ہے اور existing `media/` PDFs و live `issues.json` کو محفوظ رکھتی ہے۔
+
+19 اگست 2026 کو cPanel repository کو commit `c9a0865` تک successfully update کیا گیا۔ Update سے پہلے repository میں موجود untracked `media/Saltanat-10_16aug26.pdf` merge conflict پیدا کر رہی تھی؛ اسے حذف نہیں کیا گیا بلکہ `/home/noorgeec/saltanat-git-backup-2026-08-19/` میں محفوظ move کیا گیا۔ Repository root میں `.cpanel.yml` موجود ہے، لیکن cPanel Git UI ابھی بھی deployment eligibility کو “The system cannot deploy” دکھا رہی ہے؛ live publish سے پہلے اس eligibility issue کو حل کرنا ضروری ہے۔
