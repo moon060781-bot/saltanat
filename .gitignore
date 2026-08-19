@@ -1,0 +1,8 @@
+# Keep credentials outside version control; retain only the setup guidance.
+.cred/*
+!.cred/README.md
+
+# Local operating-system and editor files.
+.DS_Store
+Thumbs.db
+*.swp

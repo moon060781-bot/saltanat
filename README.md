@@ -1,2 +1,43 @@
-# saltanat
-Weekly newspaper publication website (saltanatnewskarachi.com.pk) featuring downloadable PDF editions built with HTML, CSS, and Java.
+# سلطنت نیوز کراچی — فوری استعمال کی ہدایات
+
+یہ فولڈر **cPanel/FTP پر اپ لوڈ کرنے کے لیے تیار** سادہ اخبار ویب سائٹ ہے۔ ہر سوموار کا PDF شمارہ موبائل اور ڈیسک ٹاپ دونوں پر فوراً دکھایا جا سکتا ہے۔
+
+## ہفتہ وار اپ ڈیٹ
+
+FTP workflow میں نیا PDF `media/` میں اپ لوڈ کریں اور `media/issues.json` میں `issues` array کے شروع میں نئی entry شامل کریں۔ مثال:
+
+```json
+{
+  "id": "11",
+  "label": "شمارہ 11",
+  "date": "24 اگست 2026",
+  "file": "Saltanat-11_24Aug26.pdf"
+}
+```
+
+> سب سے اوپر والی entry خود بخود **تازہ شمارہ** بن جاتی ہے، جبکہ باقی entries ڈراپ ڈاؤن آرکائیو میں رہتی ہیں۔
+
+`admin.php` فعال ہو تو PDF، شمارہ نمبر اور تاریخ وہیں سے اپ لوڈ کریں۔ یہ file کو `media/` میں محفوظ اور `issues.json` کو خودکار طور پر update کرتا ہے۔
+
+| فائل یا فولڈر | مقصد | ہفتہ وار تبدیلی |
+|---|---|---|
+| `index.html` | ہوم پیج اور PDF viewer | عموماً کوئی تبدیلی نہیں |
+| `media/` | تمام PDF شمارے اور `issues.json` | نئی PDF اور ایک JSON entry |
+| `admin.php` | پاس ورڈ کے ساتھ PDF uploader | اختیاری مگر آسان |
+| `deploy.php` | مستقبل کے محفوظ Git deploy controls کا starter | صرف تکنیکی update پر |
+| `.cred/` | حساس config کی مثالیں | **public folder میں نہیں** |
+
+## cPanel پر اپ لوڈ
+
+`saltanatnewskarachi.com.pk/` فولڈر کے **اندر والی تمام فائلیں** اپنے domain کے document root، مثلاً `/home/noorgeec/saltanatnewskarachi.com.pk/` یا متعلقہ `public_html/` folder میں اپ لوڈ کریں۔ Domain کو اسی folder سے point کریں۔ `.htaccess` بھی ضرور اپ لوڈ کریں۔
+
+Sensitive معلومات کے لیے `/home/noorgeec/.cred/` جیسا folder document root سے **باہر** بنائیں۔ `admin.php` کے لیے اس میں `saltanat-admin.php` بنائیں:
+
+```php
+<?php
+return ['password_hash' => 'PASSWORD_HASH_HERE'];
+```
+
+اپنا hash بنانے کے لیے cPanel Terminal میں `php -r "echo password_hash('اپنا-مضبوط-پاس-ورڈ', PASSWORD_DEFAULT);"` چلائیں اور نتیجہ اوپر پیسٹ کریں۔ حقیقی password، API key، یا `.env` file Git repository یا public web folder میں نہ رکھیں۔
+
+ابتدائی `issues.json` میں دستیاب نمونہ PDF کا URL رکھا گیا ہے تاکہ viewer فوراً دکھائی دے۔ مستقل استعمال سے پہلے PDF کو `media/` میں اپ لوڈ کر کے `file` value کو صرف local file name سے بدل دیں۔
