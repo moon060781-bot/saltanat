@@ -31,7 +31,7 @@
     <footer><div class="site-shell footer-inner"><span>© <span id="year"></span> سلطنت نیوز کراچی — جملہ حقوق محفوظ ہیں</span><div class="footer-links"><a href="/admin.php">Admin</a><a href="/deploy.php">Deploy</a><a href="mailto:info@saltanatnewskarachi.com.pk">رابطہ</a></div></div></footer>
     <script>
       // Weekly workflow: upload the PDF to media/ and add one issue entry to media/issues.json.
-      const fallbackIssues = [{ id:'10', label:'شمارہ 10', date:'16 اگست 2026', file:'https://noorgee.pk/saltanat/media/Saltanat-10_16aug26.pdf' }];
+      const fallbackIssues = [{ id:'10', label:'شمارہ 10', date:'16 اگست 2026', file:'Saltanat-10_16aug26.pdf' }];
       const select = document.getElementById('issue-select'); const viewer = document.getElementById('pdf-viewer'); const open = document.getElementById('open-pdf'); const download = document.getElementById('download-pdf'); const status = document.getElementById('status'); let issues = fallbackIssues;
       const fileURL = (file) => /^https?:\/\//.test(file) ? file : `media/${file}`;
       function displayIssue(index) { const item = issues[index]; if (!item) return; const url = fileURL(item.file); viewer.src = url; open.href = url; download.href = url; download.download = item.file.split('/').pop(); document.getElementById('issue-label').textContent = item.label; document.getElementById('issue-date').textContent = item.date; document.getElementById('issue-number').textContent = `WEEKLY EDITION · ${item.id}`; select.value = String(index); }
