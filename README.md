@@ -33,13 +33,12 @@ FTP workflow میں نیا PDF `media/` میں اپ لوڈ کریں اور `medi
 
 اگر cPanel Git Version Control میں repository path `/home/noorgeec/saltanat` پر موجود ہے تو `.cpanel.yml` پہلے `index.html`، `admin.php`، `deploy.php` اور `.htaccess` کو document root میں publish کرے گی۔ یہ deployment موجودہ `media/` PDFs اور live `media/issues.json` کو محفوظ رکھتی ہے۔ cPanel میں **Update from Remote** کے بعد **Deploy HEAD Commit** استعمال کریں۔
 
-Sensitive معلومات کے لیے `/home/noorgeec/.cred/` جیسا folder document root سے **باہر** بنائیں۔ `admin.php` کے لیے اس میں `saltanat-admin.php` بنائیں:
+Admin password کے لیے document root سے **باہر** موجود `/home/noorgeec/cred/slt.env` استعمال کریں۔ اس file میں صرف ایک line رکھیں:
 
-```php
-<?php
-return ['password_hash' => 'PASSWORD_HASH_HERE'];
+```ini
+ADMIN_PASS=آپ کا مضبوط Admin پاس ورڈ
 ```
 
-اپنا hash بنانے کے لیے cPanel Terminal میں `php -r "echo password_hash('اپنا-مضبوط-پاس-ورڈ', PASSWORD_DEFAULT);"` چلائیں اور نتیجہ اوپر پیسٹ کریں۔ حقیقی password، API key، یا `.env` file Git repository یا public web folder میں نہ رکھیں۔
+`admin.php` اسی path سے value پڑھتا ہے اور credential file کو public web directory یا Git repository میں شامل نہیں کرتا۔ `slt.env` کی permission `0600` رکھی جائے۔ حقیقی password، API key، یا `.env` file کو کبھی Git repository یا public web folder میں نہ رکھیں۔
 
 ابتدائی `issues.json` میں دستیاب نمونہ PDF کا URL رکھا گیا ہے تاکہ viewer فوراً دکھائی دے۔ مستقل استعمال سے پہلے PDF کو `media/` میں اپ لوڈ کر کے `file` value کو صرف local file name سے بدل دیں۔
