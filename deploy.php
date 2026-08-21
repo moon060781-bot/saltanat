@@ -27,12 +27,13 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+$cspNonce = base64_encode(random_bytes(18));
 header('Cache-Control: no-store, max-age=0');
 header('Pragma: no-cache');
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-" . $cspNonce . "'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 
 function e(?string $value): string
 {
@@ -666,7 +667,7 @@ $csrf = csrfToken();
       </section>
     </div>
   </main>
-  <script>
+  <script nonce="<?= e($cspNonce) ?>">
   (function(){
     var commits=<?= $restoreCommitsJson ?>;
     var idx={};
