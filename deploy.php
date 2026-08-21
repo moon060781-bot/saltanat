@@ -332,7 +332,7 @@ function selectedApprovedCommit(string $hash, array $commits): ?array
 
 function validRestorePath(string $relativePath): bool
 {
-    if (in_array($relativePath, ['index.html', 'admin.php', 'deploy.php', '.htaccess'], true)) {
+    if ($relativePath === 'index.html') {
         return true;
     }
 
@@ -366,7 +366,7 @@ function restoreSelectedCommit(array $commit): array
     }
 
     $commitHash = $commit['hash'];
-    $requiredFiles = ['index.html', 'admin.php', 'deploy.php', '.htaccess'];
+    $requiredFiles = ['index.html'];
     $imageList = runGit(['ls-tree', '-r', '--name-only', $commitHash, 'images']);
     if (!$imageList['ok']) {
         return [false, 'Selected commit کی file list حاصل نہیں ہو سکی۔'];
@@ -390,7 +390,7 @@ function restoreSelectedCommit(array $commit): array
         }
     }
 
-    return [true, 'Commit ' . $commit['short'] . ' live website پر restore ہو گیا۔ صرف allow-listed website files اور images تبدیل ہوئیں؛ PDFs اور live archive محفوظ ہیں۔'];
+    return [true, 'Commit ' . $commit['short'] . ' کا public homepage اور images live website پر restore ہو گئے۔ Dashboard، admin controls، server configuration، PDFs اور live archive محفوظ ہیں۔'];
 }
 
 function repositoryStatus(): array
@@ -583,7 +583,7 @@ $csrf = csrfToken();
         <div class="card-body operations">
           <section class="operation"><h3>1. GitHub سے sync</h3><p>صرف approved remote اور `<?= e(DEPLOY_BRANCH) ?>` branch سے fetch اور fast-forward pull کیا جائے گا۔ اگر source dirty ہو تو action رک جائے گا۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><button class="button" type="submit" name="action" value="sync">GitHub سے sync کریں</button></form></section>
           <section class="operation"><h3>2. Live website publish</h3><p>Current source کی allow-listed web files اور images live root میں copy ہوں گی۔ Live PDFs اور `issues.json` محفوظ رہیں گے۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><button class="button warn" type="submit" name="action" value="publish">Live website publish کریں</button></form></section>
-          <section class="operation restore-operation"><h3>3. منتخب version restore</h3><p>Dropdown میں صرف approved `<?= e(DEPLOY_BRANCH) ?>` history کے commits موجود ہیں۔ version منتخب کرنے کے بعد یہ action selected website files اور images کو live root میں restore کرے گا۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><label for="restore_commit">Restore کرنے کے لیے commit منتخب کریں</label><select id="restore_commit" name="restore_commit" required><option value="" selected disabled>ایک محفوظ commit منتخب کریں…</option><?php foreach ($restoreCommits as $commit): ?><option value="<?= e($commit['hash']) ?>"><?= e($commit['short']) ?> · <?= e($commit['date']) ?> · <?= e($commit['subject']) ?></option><?php endforeach; ?></select><label class="restore-confirm"><input type="checkbox" name="confirm_restore" value="restore-selected-version" required>میں تصدیق کرتا/کرتی ہوں کہ منتخب version کو live website پر restore کرنا ہے۔</label><button class="button restore" type="submit" name="action" value="restore">منتخب version restore کریں</button></form><p class="restore-note">یہ عمل Git branch یا history کو نہیں بدلتا، اور `media/` کے PDFs اور live `issues.json` کو touch نہیں کرتا۔</p></section>
+          <section class="operation restore-operation"><h3>3. منتخب version restore</h3><p>Dropdown میں صرف approved `<?= e(DEPLOY_BRANCH) ?>` history کے commits موجود ہیں۔ version منتخب کرنے کے بعد یہ action صرف public homepage اور website images کو live root میں restore کرے گا۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><label for="restore_commit">Restore کرنے کے لیے commit منتخب کریں</label><select id="restore_commit" name="restore_commit" required><option value="" selected disabled>ایک محفوظ commit منتخب کریں…</option><?php foreach ($restoreCommits as $commit): ?><option value="<?= e($commit['hash']) ?>"><?= e($commit['short']) ?> · <?= e($commit['date']) ?> · <?= e($commit['subject']) ?></option><?php endforeach; ?></select><label class="restore-confirm"><input type="checkbox" name="confirm_restore" value="restore-selected-version" required>میں تصدیق کرتا/کرتی ہوں کہ منتخب version کو live website پر restore کرنا ہے۔</label><button class="button restore" type="submit" name="action" value="restore">منتخب version restore کریں</button></form><p class="restore-note">یہ عمل Git branch یا history کو نہیں بدلتا۔ `deploy.php`، `admin.php`، server configuration، `media/` کے PDFs اور live `issues.json` محفوظ رہتے ہیں۔</p></section>
         </div>
       </aside>
       <section class="card history">
@@ -598,7 +598,7 @@ $csrf = csrfToken();
       </section>
       <section class="card">
         <div class="card-head"><h2>کام کرنے کا طریقہ</h2><span class="muted">Controlled workflow</span></div>
-        <div class="card-body"><ol class="workflow"><li>نئی تبدیلی پہلے GitHub branch `<?= e(DEPLOY_BRANCH) ?>` پر commit اور push کریں۔</li><li>اس dashboard میں **GitHub سے sync** چلائیں۔</li><li>clean status confirm ہونے کے بعد **Live website publish کریں**۔</li><li>کسی پچھلے version کے لیے dropdown سے commit منتخب کر کے confirmation کے بعد **منتخب version restore کریں**۔</li><li>PDF کا ہفتہ وار شمارہ `admin.php` سے live media folder میں upload کریں؛ publish اور restore actions اسے overwrite نہیں کریں گے۔</li></ol><p class="footer-note">یہ dashboard جان بوجھ کر commit creation، push، branch switching، destructive reset اور arbitrary shell commands کی اجازت نہیں دیتا۔ Restore صرف listed approved commits اور website files تک محدود ہے۔</p></div>
+        <div class="card-body"><ol class="workflow"><li>نئی تبدیلی پہلے GitHub branch `<?= e(DEPLOY_BRANCH) ?>` پر commit اور push کریں۔</li><li>اس dashboard میں **GitHub سے sync** چلائیں۔</li><li>clean status confirm ہونے کے بعد **Live website publish کریں**۔</li><li>کسی پچھلے homepage version کے لیے dropdown سے commit منتخب کر کے confirmation کے بعد **منتخب version restore کریں**۔</li><li>PDF کا ہفتہ وار شمارہ `admin.php` سے live media folder میں upload کریں؛ publish اور restore actions اسے overwrite نہیں کریں گے۔</li></ol><p class="footer-note">یہ dashboard جان بوجھ کر commit creation، push، branch switching، destructive reset اور arbitrary shell commands کی اجازت نہیں دیتا۔ Restore صرف listed approved commits کے public homepage اور images تک محدود ہے۔</p></div>
       </section>
     </div>
   </main>
