@@ -17,13 +17,13 @@ FTP workflow میں نیا PDF `media/` میں اپ لوڈ کریں اور `medi
 
 > سب سے اوپر والی entry خود بخود **تازہ شمارہ** بن جاتی ہے، جبکہ باقی entries ڈراپ ڈاؤن آرکائیو میں رہتی ہیں۔
 
-`admin.php` فعال ہو تو PDF، شمارہ نمبر اور تاریخ وہیں سے اپ لوڈ کریں۔ یہ file کو `media/` میں محفوظ اور `issues.json` کو خودکار طور پر update کرتا ہے۔
+`admin.php` فعال ہو تو اب دو publish modes دستیاب ہیں۔ **Hosting Server Upload** میں PDF، شمارہ نمبر اور تاریخ منتخب کریں؛ file `media/` میں محفوظ اور `issues.json` خودکار طور پر update ہو گی۔ **Google Drive Link** میں پہلے PDF کو Drive میں `Anyone with the link — Viewer` کے ساتھ share کریں، پھر recognized Drive link، شمارہ نمبر اور تاریخ `admin.php` میں دیں۔ اس mode میں PDF hosting پر copy نہیں ہوتی؛ صرف Drive file ID اور safe preview information آرکائیو میں محفوظ ہوتی ہے۔
 
 | فائل یا فولڈر | مقصد | ہفتہ وار تبدیلی |
 |---|---|---|
 | `index.html` | ہوم پیج اور PDF viewer | عموماً کوئی تبدیلی نہیں |
 | `media/` | تمام PDF شمارے اور `issues.json` | نئی PDF اور ایک JSON entry |
-| `admin.php` | پاس ورڈ کے ساتھ PDF uploader | اختیاری مگر آسان |
+| `admin.php` | پاس ورڈ کے ساتھ Hosting Upload + Google Drive Link publisher | اختیاری مگر آسان |
 | `deploy.php` | مستقبل کے محفوظ Git deploy controls کا starter | صرف تکنیکی update پر |
 | `.cred/` | حساس config کی مثالیں | **public folder میں نہیں** |
 
@@ -40,5 +40,22 @@ ADMIN_PASS=آپ کا مضبوط Admin پاس ورڈ
 ```
 
 `admin.php` اسی path سے value پڑھتا ہے اور credential file کو public web directory یا Git repository میں شامل نہیں کرتا۔ `slt.env` کی permission `0600` رکھی جائے۔ حقیقی password، API key، یا `.env` file کو کبھی Git repository یا public web folder میں نہ رکھیں۔
+
+### Google Drive archive entry
+
+Google Drive mode archive میں یہ اضافی fields خود بناتا ہے:
+
+```json
+{
+  "id": "11",
+  "label": "شمارہ 11",
+  "date": "24 اگست 2026",
+  "source": "google-drive",
+  "drive_id": "YOUR_GOOGLE_DRIVE_FILE_ID",
+  "file": "https://drive.google.com/file/d/YOUR_GOOGLE_DRIVE_FILE_ID/preview"
+}
+```
+
+پرانے local records میں `source` نہ ہو تو بھی انہیں `hosting` issue سمجھ کر پہلے کی طرح `media/` سے دکھایا جائے گا۔
 
 ابتدائی `issues.json` میں دستیاب نمونہ PDF کا URL رکھا گیا ہے تاکہ viewer فوراً دکھائی دے۔ مستقل استعمال سے پہلے PDF کو `media/` میں اپ لوڈ کر کے `file` value کو صرف local file name سے بدل دیں۔
