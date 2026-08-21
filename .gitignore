@@ -2,6 +2,10 @@
 .cred/*
 !.cred/README.md
 
+# Legacy cPanel helper pages are intentionally preserved on hosting but not versioned.
+saltanat-pdf-viewer.html
+xindex.html
+
 # Local operating-system and editor files.
 .DS_Store
 Thumbs.db
