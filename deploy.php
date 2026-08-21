@@ -251,6 +251,148 @@ function publishToLive(): array
     return [true, 'Current source live document root میں publish ہو گیا۔ ' . $images . ' image file(s) sync ہوئیں؛ live PDFs اور archive محفوظ رکھے گئے۔'];
 }
 
+function runGitRaw(array $arguments): array
+{
+    $git = '/usr/bin/git';
+    if (!function_exists('proc_open')) {
+        return ['ok' => false, 'code' => 126, 'output' => 'Hosting PHP میں Git process چلانے کی اجازت دستیاب نہیں ہے۔'];
+    }
+    if (!is_executable($git) || !is_dir(DEPLOY_REPOSITORY . '/.git')) {
+        return ['ok' => false, 'code' => 127, 'output' => 'Repository یا Git executable دستیاب نہیں ہے۔'];
+    }
+
+    $command = $git . ' -C ' . escapeshellarg(DEPLOY_REPOSITORY);
+    foreach ($arguments as $argument) {
+        $command .= ' ' . escapeshellarg($argument);
+    }
+
+    $descriptor = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptor, $pipes, null, ['PATH' => '/usr/bin:/bin']);
+    if (!is_resource($process)) {
+        return ['ok' => false, 'code' => 1, 'output' => 'Git process شروع نہیں ہو سکا۔'];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($process);
+
+    return [
+        'ok' => $code === 0,
+        'code' => $code,
+        'output' => $code === 0 ? (string) $stdout : trim((string) $stderr),
+    ];
+}
+
+function approvedRestoreCommits(): array
+{
+    [$ready] = repositoryReady();
+    if (!$ready) {
+        return [];
+    }
+
+    $history = runGitRaw(['log', '--date=short', '--format=%H|%h|%ad|%s', DEPLOY_BRANCH]);
+    if (!$history['ok']) {
+        return [];
+    }
+
+    $commits = [];
+    foreach (array_filter(explode("\n", trim($history['output']))) as $row) {
+        $parts = explode('|', $row, 4);
+        if (count($parts) !== 4 || !preg_match('/^[a-f0-9]{40}$/i', $parts[0])) {
+            continue;
+        }
+        $commits[] = [
+            'hash' => strtolower($parts[0]),
+            'short' => $parts[1],
+            'date' => $parts[2],
+            'subject' => $parts[3],
+        ];
+    }
+
+    return $commits;
+}
+
+function selectedApprovedCommit(string $hash, array $commits): ?array
+{
+    foreach ($commits as $commit) {
+        if (hash_equals($commit['hash'], strtolower($hash))) {
+            return $commit;
+        }
+    }
+
+    return null;
+}
+
+function validRestorePath(string $relativePath): bool
+{
+    if (in_array($relativePath, ['index.html', 'admin.php', 'deploy.php', '.htaccess'], true)) {
+        return true;
+    }
+
+    return str_starts_with($relativePath, 'images/')
+        && !str_contains($relativePath, '..')
+        && !str_contains($relativePath, "\0");
+}
+
+function writeLiveContent(string $relativePath, string $content): bool
+{
+    if (!validRestorePath($relativePath)) {
+        return false;
+    }
+
+    $destination = DEPLOY_LIVE_ROOT . '/' . $relativePath;
+    if (!is_dir(dirname($destination)) && !mkdir(dirname($destination), 0755, true) && !is_dir(dirname($destination))) {
+        return false;
+    }
+
+    return file_put_contents($destination, $content, LOCK_EX) !== false;
+}
+
+function restoreSelectedCommit(array $commit): array
+{
+    [$ready, $reason] = repositoryReady();
+    if (!$ready) {
+        return [false, $reason];
+    }
+    if (!is_dir(DEPLOY_LIVE_ROOT)) {
+        return [false, 'Live document root دستیاب نہیں ہے۔'];
+    }
+
+    $commitHash = $commit['hash'];
+    $requiredFiles = ['index.html', 'admin.php', 'deploy.php', '.htaccess'];
+    $imageList = runGit(['ls-tree', '-r', '--name-only', $commitHash, 'images']);
+    if (!$imageList['ok']) {
+        return [false, 'Selected commit کی file list حاصل نہیں ہو سکی۔'];
+    }
+
+    $restorePaths = $requiredFiles;
+    foreach (array_filter(explode("\n", trim($imageList['output']))) as $imagePath) {
+        $imagePath = trim($imagePath);
+        if (validRestorePath($imagePath)) {
+            $restorePaths[] = $imagePath;
+        }
+    }
+
+    foreach (array_unique($restorePaths) as $relativePath) {
+        $content = runGitRaw(['show', '--no-textconv', $commitHash . ':' . $relativePath]);
+        if (!$content['ok']) {
+            return [false, $relativePath . ' selected commit میں موجود نہیں ہے؛ restore روک دیا گیا۔'];
+        }
+        if (!writeLiveContent($relativePath, (string) $content['output'])) {
+            return [false, $relativePath . ' کو live folder میں لکھا نہیں جا سکا۔'];
+        }
+    }
+
+    return [true, 'Commit ' . $commit['short'] . ' live website پر restore ہو گیا۔ صرف allow-listed website files اور images تبدیل ہوئیں؛ PDFs اور live archive محفوظ ہیں۔'];
+}
+
 function repositoryStatus(): array
 {
     $head = runGit(['rev-parse', '--short', 'HEAD']);
@@ -352,6 +494,21 @@ if ($loggedIn && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']
         [$success, $message] = publishToLive();
         audit($auditPath, 'publish', $success ? 'success' : 'failed', $success ? 'allow-listed files only' : 'blocked');
         $_SESSION['saltanat_deploy_flash'] = ['success' => $success, 'message' => $message];
+    } elseif ($action === 'restore') {
+        $selectedHash = trim((string) ($_POST['restore_commit'] ?? ''));
+        $confirmed = (string) ($_POST['confirm_restore'] ?? '') === 'restore-selected-version';
+        $commit = $confirmed ? selectedApprovedCommit($selectedHash, approvedRestoreCommits()) : null;
+        if (!$confirmed) {
+            $success = false;
+            $message = 'Restore سے پہلے selected version confirmation ضروری ہے۔';
+        } elseif ($commit === null) {
+            $success = false;
+            $message = 'منتخب commit approved dropdown history میں موجود نہیں ہے۔';
+        } else {
+            [$success, $message] = restoreSelectedCommit($commit);
+        }
+        audit($auditPath, 'restore', $success ? 'success' : 'failed', $commit['short'] ?? 'invalid-selection');
+        $_SESSION['saltanat_deploy_flash'] = ['success' => $success, 'message' => $message];
     } else {
         audit($auditPath, 'unknown', 'failed');
         $_SESSION['saltanat_deploy_flash'] = ['success' => false, 'message' => 'Allowed action منتخب نہیں کی گئی۔'];
@@ -363,6 +520,7 @@ if ($loggedIn && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']
 
 $status = $loggedIn ? repositoryStatus() : [];
 $auditEntries = $loggedIn ? auditTail($auditPath) : [];
+$restoreCommits = $loggedIn ? approvedRestoreCommits() : [];
 $csrf = csrfToken();
 ?><!doctype html>
 <html lang="ur" dir="rtl">
@@ -372,7 +530,7 @@ $csrf = csrfToken();
   <title>Saltanat Deploy Dashboard</title>
   <style>
     :root{--navy:#0e1d34;--navy-2:#162b4b;--cream:#f5efe1;--paper:#fffaf0;--ink:#14233d;--line:#d6c5a4;--gold:#c99c55;--mint:#266f6d;--danger:#a04e43;--muted:#657186;--shadow:0 18px 45px rgba(14,29,52,.13)}
-    *{box-sizing:border-box} body{margin:0;background:var(--cream);color:var(--ink);font-family:Tahoma,"Noto Nastaliq Urdu",serif;line-height:1.7}.shell{width:min(1180px,calc(100% - 32px));margin:auto}.topbar{background:var(--navy);border-bottom:4px solid var(--gold);color:#fff}.topbar-inner{min-height:74px;display:flex;align-items:center;justify-content:space-between;gap:18px}.eyebrow{margin:0;color:#f0cd90;font:700 11px/1.2 monospace;letter-spacing:.12em}.topbar h1{margin:3px 0 0;font-size:25px;line-height:1.35}.topbar-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.topbar-actions form{margin:0}.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.28);padding:5px 9px;color:#eaf2f5;font:11px/1.3 monospace}.content{padding:28px 0 42px}.flash{margin:0 0 18px;border-right:5px solid;padding:12px 15px;background:var(--paper);box-shadow:var(--shadow);font-size:13px}.flash.ok{border-color:var(--mint);color:#155452}.flash.error{border-color:var(--danger);color:#7e342c}.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.9fr);gap:20px}.card{border:1px solid var(--line);background:var(--paper);box-shadow:var(--shadow)}.card-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.card-head h2{margin:0;font-size:20px;line-height:1.4}.card-body{padding:18px}.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{border:1px solid #e3d7c1;padding:12px;background:#fffdf8}.metric span{display:block;color:var(--muted);font:11px/1.4 monospace}.metric strong{display:block;margin-top:4px;font-family:"Source Sans 3",Tahoma,sans-serif;font-size:17px;overflow-wrap:anywhere}.state{font-size:13px;font-weight:700}.state.clean{color:var(--mint)}.state.dirty{color:var(--danger)}.commit-note{margin:14px 0 0;padding:12px 14px;background:#f0e5cf;border-right:4px solid var(--gold);font-size:13px}.commit-note strong{display:block}.operations{display:grid;gap:12px}.operation{border:1px solid #dfd0b6;padding:15px;background:#fffdf8}.operation h3{margin:0;font-size:18px}.operation p{margin:5px 0 11px;color:#586276;font-size:12px;line-height:1.9}.button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--navy);padding:7px 14px;background:var(--navy);color:#fff;font:700 12px/1.2 Tahoma,"Noto Nastaliq Urdu",serif;text-decoration:none;cursor:pointer;transition:transform .16s ease,background .16s ease}.button:hover{background:var(--navy-2)}.button:active{transform:scale(.98)}.button.secondary{background:transparent;color:var(--navy)}.button.warn{border-color:var(--gold);background:var(--gold);color:#15233a}.topbar .button.secondary{color:#fff;border-color:rgba(255,255,255,.5)}.topbar .button.secondary:hover{background:rgba(255,255,255,.12)}.list{margin:0;padding:0;list-style:none;display:grid;gap:9px}.list li{border-bottom:1px solid #eadfcd;padding:0 0 9px;font-size:12px}.list li:last-child{border-bottom:0;padding-bottom:0}.muted{color:var(--muted);font-size:12px}.history{grid-column:1/-1}.commit-table{width:100%;border-collapse:collapse;font-size:12px}.commit-table th,.commit-table td{padding:9px 8px;border-bottom:1px solid #e9deca;text-align:right;vertical-align:top}.commit-table th{color:#586276;font-weight:700}.commit-table td:first-child{font-family:monospace;color:var(--mint);font-weight:700}.workflow{margin-top:20px;border-top:2px solid var(--navy);padding:17px 0 0}.workflow h2{margin:0 0 8px;font-size:19px}.workflow ol{margin:0;padding-right:22px;color:#4d576a;font-size:12px;line-height:2}.footer-note{margin-top:20px;color:#657186;font-size:11px}.login-shell{width:min(520px,calc(100% - 30px));margin:9vh auto}.login-card{border:1px solid var(--line);border-top:5px solid var(--gold);background:var(--paper);padding:28px;box-shadow:var(--shadow)}.login-card h1{margin:7px 0;font-size:28px}.login-card p{color:#596376;font-size:13px}.login-card label{display:block;margin:17px 0 5px;font-weight:700}.login-card input{width:100%;border:1px solid #cdbb9d;padding:11px;background:#fffdf8;color:var(--ink);font:16px sans-serif}.login-error{color:#8c3d34;font-size:13px}.security-note{margin-top:18px;padding:11px 12px;border-right:4px solid var(--gold);background:#f0e5cf;color:#5c4b31;font-size:12px;line-height:1.9}@media(max-width:780px){.shell{width:min(100% - 22px,1180px)}.topbar-inner{align-items:flex-start;flex-direction:column;padding:14px 0;gap:9px}.topbar-actions{justify-content:flex-start}.dashboard-grid{grid-template-columns:1fr}.status-grid{grid-template-columns:1fr}.commit-table{display:block;overflow:auto;white-space:nowrap}.card-head{align-items:flex-start;flex-direction:column}.footer-note{line-height:1.9}}
+    *{box-sizing:border-box} body{margin:0;background:var(--cream);color:var(--ink);font-family:Tahoma,"Noto Nastaliq Urdu",serif;line-height:1.7}.shell{width:min(1180px,calc(100% - 32px));margin:auto}.topbar{background:var(--navy);border-bottom:4px solid var(--gold);color:#fff}.topbar-inner{min-height:74px;display:flex;align-items:center;justify-content:space-between;gap:18px}.eyebrow{margin:0;color:#f0cd90;font:700 11px/1.2 monospace;letter-spacing:.12em}.topbar h1{margin:3px 0 0;font-size:25px;line-height:1.35}.topbar-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}.topbar-actions form{margin:0}.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.28);padding:5px 9px;color:#eaf2f5;font:11px/1.3 monospace}.content{padding:28px 0 42px}.flash{margin:0 0 18px;border-right:5px solid;padding:12px 15px;background:var(--paper);box-shadow:var(--shadow);font-size:13px}.flash.ok{border-color:var(--mint);color:#155452}.flash.error{border-color:var(--danger);color:#7e342c}.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.9fr);gap:20px}.card{border:1px solid var(--line);background:var(--paper);box-shadow:var(--shadow)}.card-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.card-head h2{margin:0;font-size:20px;line-height:1.4}.card-body{padding:18px}.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{border:1px solid #e3d7c1;padding:12px;background:#fffdf8}.metric span{display:block;color:var(--muted);font:11px/1.4 monospace}.metric strong{display:block;margin-top:4px;font-family:"Source Sans 3",Tahoma,sans-serif;font-size:17px;overflow-wrap:anywhere}.state{font-size:13px;font-weight:700}.state.clean{color:var(--mint)}.state.dirty{color:var(--danger)}.commit-note{margin:14px 0 0;padding:12px 14px;background:#f0e5cf;border-right:4px solid var(--gold);font-size:13px}.commit-note strong{display:block}.operations{display:grid;gap:12px}.operation{border:1px solid #dfd0b6;padding:15px;background:#fffdf8}.operation h3{margin:0;font-size:18px}.operation p{margin:5px 0 11px;color:#586276;font-size:12px;line-height:1.9}.restore-operation{border-top:4px solid var(--gold);background:#fff9ed}.restore-operation label{display:block;margin:10px 0 5px;font-size:12px;font-weight:700}.restore-operation select{width:100%;padding:9px;border:1px solid #bea477;background:#fffdf8;color:var(--ink);font:12px Tahoma,"Noto Nastaliq Urdu",serif}.restore-confirm{display:flex!important;align-items:flex-start;gap:8px;margin:11px 0!important;color:#714c1a;font-weight:400!important;line-height:1.7}.restore-confirm input{width:16px;height:16px;flex:0 0 auto;margin-top:3px}.restore-note{margin:10px 0 0;padding:9px 10px;border-right:3px solid var(--gold);background:#f2e7d0;color:#5a4b34;font-size:11px;line-height:1.9}.button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--navy);padding:7px 14px;background:var(--navy);color:#fff;font:700 12px/1.2 Tahoma,"Noto Nastaliq Urdu",serif;text-decoration:none;cursor:pointer;transition:transform .16s ease,background .16s ease}.button:hover{background:var(--navy-2)}.button:active{transform:scale(.98)}.button.secondary{background:transparent;color:var(--navy)}.button.warn{border-color:var(--gold);background:var(--gold);color:#15233a}.button.restore{border-color:var(--danger);background:var(--danger);color:#fff}.button.restore:hover{background:#83382f}.topbar .button.secondary{color:#fff;border-color:rgba(255,255,255,.5)}.topbar .button.secondary:hover{background:rgba(255,255,255,.12)}.list{margin:0;padding:0;list-style:none;display:grid;gap:9px}.list li{border-bottom:1px solid #eadfcd;padding:0 0 9px;font-size:12px}.list li:last-child{border-bottom:0;padding-bottom:0}.muted{color:var(--muted);font-size:12px}.history{grid-column:1/-1}.commit-table{width:100%;border-collapse:collapse;font-size:12px}.commit-table th,.commit-table td{padding:9px 8px;border-bottom:1px solid #e9deca;text-align:right;vertical-align:top}.commit-table th{color:#586276;font-weight:700}.commit-table td:first-child{font-family:monospace;color:var(--mint);font-weight:700}.workflow{margin-top:20px;border-top:2px solid var(--navy);padding:17px 0 0}.workflow h2{margin:0 0 8px;font-size:19px}.workflow ol{margin:0;padding-right:22px;color:#4d576a;font-size:12px;line-height:2}.footer-note{margin-top:20px;color:#657186;font-size:11px}.login-shell{width:min(520px,calc(100% - 30px));margin:9vh auto}.login-card{border:1px solid var(--line);border-top:5px solid var(--gold);background:var(--paper);padding:28px;box-shadow:var(--shadow)}.login-card h1{margin:7px 0;font-size:28px}.login-card p{color:#596376;font-size:13px}.login-card label{display:block;margin:17px 0 5px;font-weight:700}.login-card input{width:100%;border:1px solid #cdbb9d;padding:11px;background:#fffdf8;color:var(--ink);font:16px sans-serif}.login-error{color:#8c3d34;font-size:13px}.security-note{margin-top:18px;padding:11px 12px;border-right:4px solid var(--gold);background:#f0e5cf;color:#5c4b31;font-size:12px;line-height:1.9}@media(max-width:780px){.shell{width:min(100% - 22px,1180px)}.topbar-inner{align-items:flex-start;flex-direction:column;padding:14px 0;gap:9px}.topbar-actions{justify-content:flex-start}.dashboard-grid{grid-template-columns:1fr}.status-grid{grid-template-columns:1fr}.commit-table{display:block;overflow:auto;white-space:nowrap}.card-head{align-items:flex-start;flex-direction:column}.footer-note{line-height:1.9}}
   </style>
 </head>
 <body>
@@ -381,7 +539,7 @@ $csrf = csrfToken();
     <section class="login-card">
       <p class="eyebrow" style="color:#9a763d">SALTANAT · DEPLOY CONTROL</p>
       <h1>محفوظ ڈپلائے ڈیش بورڈ</h1>
-      <p>یہ صفحہ صرف مجاز editor کے لیے ہے۔ یہ dashboard arbitrary commands، branch changes، restore یا public secrets کی اجازت نہیں دیتا۔</p>
+      <p>یہ صفحہ صرف مجاز editor کے لیے ہے۔ یہ dashboard arbitrary commands، branch changes یا public secrets کی اجازت نہیں دیتا؛ restore صرف approved commit dropdown سے ممکن ہے۔</p>
       <?php if ($loginError !== ''): ?><p class="login-error"><?= e($loginError) ?></p><?php endif; ?>
       <form method="post" autocomplete="off">
         <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
@@ -421,10 +579,11 @@ $csrf = csrfToken();
         <div class="card-body operations">
           <section class="operation"><h3>1. GitHub سے sync</h3><p>صرف approved remote اور `<?= e(DEPLOY_BRANCH) ?>` branch سے fetch اور fast-forward pull کیا جائے گا۔ اگر source dirty ہو تو action رک جائے گا۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><button class="button" type="submit" name="action" value="sync">GitHub سے sync کریں</button></form></section>
           <section class="operation"><h3>2. Live website publish</h3><p>Current source کی allow-listed web files اور images live root میں copy ہوں گی۔ Live PDFs اور `issues.json` محفوظ رہیں گے۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><button class="button warn" type="submit" name="action" value="publish">Live website publish کریں</button></form></section>
+          <section class="operation restore-operation"><h3>3. منتخب version restore</h3><p>Dropdown میں صرف approved `<?= e(DEPLOY_BRANCH) ?>` history کے commits موجود ہیں۔ version منتخب کرنے کے بعد یہ action selected website files اور images کو live root میں restore کرے گا۔</p><form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><label for="restore_commit">Restore کرنے کے لیے commit منتخب کریں</label><select id="restore_commit" name="restore_commit" required><option value="" selected disabled>ایک محفوظ commit منتخب کریں…</option><?php foreach ($restoreCommits as $commit): ?><option value="<?= e($commit['hash']) ?>"><?= e($commit['short']) ?> · <?= e($commit['date']) ?> · <?= e($commit['subject']) ?></option><?php endforeach; ?></select><label class="restore-confirm"><input type="checkbox" name="confirm_restore" value="restore-selected-version" required>میں تصدیق کرتا/کرتی ہوں کہ منتخب version کو live website پر restore کرنا ہے۔</label><button class="button restore" type="submit" name="action" value="restore">منتخب version restore کریں</button></form><p class="restore-note">یہ عمل Git branch یا history کو نہیں بدلتا، اور `media/` کے PDFs اور live `issues.json` کو touch نہیں کرتا۔</p></section>
         </div>
       </aside>
       <section class="card history">
-        <div class="card-head"><h2>حالیہ GitHub commits</h2><span class="muted">Latest 5 commits</span></div>
+        <div class="card-head"><h2>حالیہ GitHub commits</h2><span class="muted">Latest 5 commits · Restore dropdown میں تمام approved versions</span></div>
         <div class="card-body">
           <table class="commit-table"><thead><tr><th>Commit</th><th>تاریخ</th><th>پیغام</th></tr></thead><tbody><?php if ($status['recent']): ?><?php foreach ($status['recent'] as $commit): ?><tr><td><?= e($commit[0]) ?></td><td><?= e($commit[1]) ?></td><td><?= e($commit[2]) ?></td></tr><?php endforeach; ?><?php else: ?><tr><td colspan="3">Commit history دستیاب نہیں ہے۔</td></tr><?php endif; ?></tbody></table>
         </div>
@@ -435,7 +594,7 @@ $csrf = csrfToken();
       </section>
       <section class="card">
         <div class="card-head"><h2>کام کرنے کا طریقہ</h2><span class="muted">Controlled workflow</span></div>
-        <div class="card-body"><ol class="workflow"><li>نئی تبدیلی پہلے GitHub branch `<?= e(DEPLOY_BRANCH) ?>` پر commit اور push کریں۔</li><li>اس dashboard میں **GitHub سے sync** چلائیں۔</li><li>clean status confirm ہونے کے بعد **Live website publish کریں**۔</li><li>PDF کا ہفتہ وار شمارہ `admin.php` سے live media folder میں upload کریں؛ publish action اسے overwrite نہیں کرے گا۔</li></ol><p class="footer-note">یہ dashboard جان بوجھ کر commit creation، push، branch switching، destructive reset اور arbitrary shell commands کی اجازت نہیں دیتا۔ یہ پابندی source، PDFs اور hosting account کے تحفظ کے لیے ہے۔</p></div>
+        <div class="card-body"><ol class="workflow"><li>نئی تبدیلی پہلے GitHub branch `<?= e(DEPLOY_BRANCH) ?>` پر commit اور push کریں۔</li><li>اس dashboard میں **GitHub سے sync** چلائیں۔</li><li>clean status confirm ہونے کے بعد **Live website publish کریں**۔</li><li>کسی پچھلے version کے لیے dropdown سے commit منتخب کر کے confirmation کے بعد **منتخب version restore کریں**۔</li><li>PDF کا ہفتہ وار شمارہ `admin.php` سے live media folder میں upload کریں؛ publish اور restore actions اسے overwrite نہیں کریں گے۔</li></ol><p class="footer-note">یہ dashboard جان بوجھ کر commit creation، push، branch switching، destructive reset اور arbitrary shell commands کی اجازت نہیں دیتا۔ Restore صرف listed approved commits اور website files تک محدود ہے۔</p></div>
       </section>
     </div>
   </main>
